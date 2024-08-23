@@ -71,7 +71,7 @@ void runJobs(JOB ** jobs, int n, int len_prefix){
 	for(; ; ) {
 		sleep(5);
 		printf("\e[1;1H\e[2J");
-		print_status(jobs, n, &counter, 5.0f);
+		print_status(jobs, n, &counter, 5);
 	}
 
 }

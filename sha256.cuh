@@ -100,14 +100,14 @@ uint64_t print_best_job(JOB ** jobs, int n) {
 	return total_counter;
 }
 
-void print_status(JOB ** jobs, int n, uint64_t * previous_counter, float time) {
+void print_status(JOB ** jobs, int n, uint64_t * previous_counter, int time) {
 	uint64_t total_counter;
 	/*for(int i = 0; i < 4; i++) {
     print_job(jobs[i]);
 	}*/
 	printf("\nBest hash: ");
 	total_counter = print_best_job(jobs, n);
-	printf("speed = %.2f MH/s\n", ((total_counter - *previous_counter) / time) / (1024*1024));
+	printf("speed = %d MiH/s\n", ((total_counter - *previous_counter) / time) >> 20);
 	*previous_counter = total_counter;
 }
 
