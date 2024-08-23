@@ -10,24 +10,70 @@
 #define INPUT_SIZE 55
 #define RANDOM_SIZE 15
 
-const char base64[65] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/+";
+const char base64[65] = "+/0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+__device__ __constant__ char cuda_base64[65] = "+/0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
-__global__ void sha256_cuda(JOB ** jobs, int n) {
-	int i = blockIdx.x * blockDim.x + threadIdx.x;
-	// perform sha256 calculation here
-	if (i < n){
-		SHA256_CTX ctx;
+// perform sha256 calculation here
+__global__ void sha256_cuda(JOB ** jobs, int n, int len_prefix) {
+	int thread_id = blockIdx.x * blockDim.x + threadIdx.x;
+
+	if(thread_id > n) {
+		return;
+	}
+	SHA256_CTX ctx;
+
+	for(; ; jobs[thread_id]->counter++) {
+		
+		for (int i = len_prefix; i < INPUT_SIZE - RANDOM_SIZE; i++) {
+
+			if (jobs[thread_id]->data[i] != 'z') {
+				int j = jobs[thread_id]->counter >> (6 * (i - len_prefix));
+				jobs[thread_id]->data[i] = cuda_base64[j % 64];
+				break;
+			}
+			else {
+				jobs[thread_id]->data[i] = '+';
+			}
+
+		}
+
 		sha256_init(&ctx);
-		sha256_update(&ctx, jobs[i]->data, INPUT_SIZE);
-		sha256_final(&ctx, jobs[i]->digest);
+		sha256_update(&ctx, jobs[thread_id]->data, INPUT_SIZE);
+		sha256_final(&ctx, jobs[thread_id]->digest);
+
+		if(jobs[thread_id]->digest[0] > 0) continue;
+		if(jobs[thread_id]->digest[1] > 0) continue;
+		//if(jobs[thread_id]->digest[2] > 0) continue;
+
+		for(int i = 2; i < 32; i++) {
+
+			if(jobs[thread_id]->digest[i] < jobs[thread_id]->best_digest[i]) {
+				memcpy(jobs[thread_id]->best_digest, jobs[thread_id]->digest, 32);
+				memcpy(jobs[thread_id]->best_data, jobs[thread_id]->data, 55);
+				break;
+			}
+			else if(jobs[thread_id]->digest[i] > jobs[thread_id]->best_digest[i]) {
+				break;
+			}
+
+		}
+
 	}
 }
 
-
-void runJobs(JOB ** jobs, int n){
+void runJobs(JOB ** jobs, int n, int len_prefix){
 	int blockSize = 4;
+	uint64_t counter = 0;
 	int numBlocks = (n + blockSize - 1) / blockSize;
-	sha256_cuda <<< numBlocks, blockSize >>> (jobs, n);
+	
+	sha256_cuda <<< numBlocks, blockSize >>> (jobs, n, len_prefix);
+
+	for(; ; ) {
+		sleep(5);
+		printf("\e[1;1H\e[2J");
+		print_status(jobs, n, &counter, 5.0f);
+	}
+
 }
 
 
@@ -35,10 +81,9 @@ JOB * JOB_init(char * input) {
 	JOB * j;
 	checkCudaErrors(cudaMallocManaged(&j, sizeof(JOB)));	//j = (JOB *)malloc(sizeof(JOB));
 	memcpy(j->data, input, INPUT_SIZE);
-	
-	for (int i = 0; i < 32; i++) {
-		j->digest[i] = 0xff;
-	}
+
+	memset(j->digest, 0xff, 32);
+	memset(j->best_digest, 0xff, 32);
 
 	return j;
 }
@@ -83,10 +128,9 @@ int main(int argc, char **argv) {
 		memset(input, 0, INPUT_SIZE);
 	}
 
-	runJobs(jobs, n);
+	runJobs(jobs, n, strlen(prefix)+1);
 
 	cudaDeviceSynchronize();
-	print_jobs(jobs, n);
 	cudaDeviceReset();
 	return 0;
 }

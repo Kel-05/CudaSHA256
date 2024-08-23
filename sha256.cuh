@@ -30,6 +30,9 @@ typedef uint32_t  WORD;             // 32-bit word, change to "long" for 16-bit 
 typedef struct JOB {
 	BYTE data[64];
 	BYTE digest[32];
+	BYTE best_data[64];
+	BYTE best_digest[32];
+	uint64_t counter = 0;
 }JOB;
 
 
@@ -71,19 +74,41 @@ char * hash_to_string(BYTE * buff) {
 }
 
 void print_job(JOB * j){
-	printf("%s  %s\n", hash_to_string(j->digest), j->data);
+	printf("%s -> %X\n", j->data, hash_to_string(j->digest));
 }
 
-void print_jobs(JOB ** jobs, int n) {
-	for (int i = 0; i < n; i++)
-	{
-        print_job(jobs[i]);
-		// printf("@ %p JOB[%i] \n", jobs[i], i);
-		// printf("\t @ 0x%p data = %x \n", jobs[i]->data, (jobs[i]->data == 0)? 0 : jobs[i]->data[0]);
-		// printf("\t @ 0x%p size = %llu \n", &(jobs[i]->size), jobs[i]->size);
-		// printf("\t @ 0x%p fname = %s \n", &(jobs[i]->fname), jobs[i]->fname);
-		// printf("\t @ 0x%p digest = %s \n------\n", jobs[i]->digest, hash_to_string(jobs[i]->digest));
+uint64_t print_best_job(JOB ** jobs, int n) {
+	uint64_t total_counter = 0;
+  int bestjob = 0;
+
+  for (int i = 1; i < n; i++) {
+		total_counter += jobs[i]->counter;
+		for (int j=0; j < 32; j++) {
+
+			if (jobs[i]->best_digest[j] < jobs[bestjob]->best_digest[j]) {
+				bestjob = i;
+				break;
+			}
+			else if (jobs[i]->best_digest[j] > jobs[bestjob]->best_digest[j]) {
+				break;
+			}
+
+		}
 	}
+	printf("%s -> %s\n", jobs[bestjob]->best_data, hash_to_string(jobs[bestjob]->best_digest));
+	printf("counter = %lu\n\n", total_counter);
+	return total_counter;
+}
+
+void print_status(JOB ** jobs, int n, uint64_t * previous_counter, float time) {
+	uint64_t total_counter;
+	/*for(int i = 0; i < 4; i++) {
+    print_job(jobs[i]);
+	}*/
+	printf("\nBest hash: ");
+	total_counter = print_best_job(jobs, n);
+	printf("speed = %.2f MH/s\n", ((total_counter - *previous_counter) / time) / (1024*1024));
+	*previous_counter = total_counter;
 }
 
 __device__ void mycpy12(uint32_t *d, const uint32_t *s) {
