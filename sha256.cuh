@@ -28,10 +28,8 @@ typedef unsigned char BYTE;             // 8-bit byte
 typedef uint32_t  WORD;             // 32-bit word, change to "long" for 16-bit machines
 
 typedef struct JOB {
-	BYTE * data;
-	unsigned long long size;
-	BYTE digest[64];
-	char fname[128];
+	BYTE data[64];
+	BYTE digest[32];
 }JOB;
 
 
@@ -84,7 +82,7 @@ char * hash_to_string(BYTE * buff) {
 }
 
 void print_job(JOB * j){
-	printf("%s  %s\n", hash_to_string(j->digest), j->fname);
+	printf("%s  %s\n", hash_to_string(j->digest), j->data);
 }
 
 void print_jobs(JOB ** jobs, int n) {

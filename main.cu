@@ -1,8 +1,3 @@
-// cd /home/hork/cuda-workspace/CudaSHA256/Debug/files
-// time ~/Dropbox/FIIT/APS/Projekt/CpuSHA256/a.out -f ../file-list
-// time ../CudaSHA256 -f ../file-list
-
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,45 +7,10 @@
 #include <dirent.h>
 #include <ctype.h>
 
-char * trim(char *str){
-    size_t len = 0;
-    char *frontp = str;
-    char *endp = NULL;
+#define INPUT_SIZE 55
+#define RANDOM_SIZE 15
 
-    if( str == NULL ) { return NULL; }
-    if( str[0] == '\0' ) { return str; }
-
-    len = strlen(str);
-    endp = str + len;
-
-    /* Move the front and back pointers to address the first non-whitespace
-     * characters from each end.
-     */
-    while( isspace((unsigned char) *frontp) ) { ++frontp; }
-    if( endp != frontp )
-    {
-        while( isspace((unsigned char) *(--endp)) && endp != frontp ) {}
-    }
-
-    if( str + len - 1 != endp )
-            *(endp + 1) = '\0';
-    else if( frontp != str &&  endp == frontp )
-            *str = '\0';
-
-    /* Shift the string so that it starts at str so that if it's dynamically
-     * allocated, we can still free it on the returned pointer.  Note the reuse
-     * of endp to mean the front of the string buffer now.
-     */
-    endp = str;
-    if( frontp != str )
-    {
-            while( *frontp ) { *endp++ = *frontp++; }
-            *endp = '\0';
-    }
-
-
-    return str;
-}
+const char base64[65] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/+";
 
 __global__ void sha256_cuda(JOB ** jobs, int n) {
 	int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -58,7 +18,7 @@ __global__ void sha256_cuda(JOB ** jobs, int n) {
 	if (i < n){
 		SHA256_CTX ctx;
 		sha256_init(&ctx);
-		sha256_update(&ctx, jobs[i]->data, jobs[i]->size);
+		sha256_update(&ctx, jobs[i]->data, INPUT_SIZE);
 		sha256_final(&ctx, jobs[i]->digest);
 	}
 }
@@ -76,128 +36,60 @@ void runJobs(JOB ** jobs, int n){
 }
 
 
-JOB * JOB_init(BYTE * data, long size, char * fname) {
+JOB * JOB_init(char * input) {
 	JOB * j;
 	checkCudaErrors(cudaMallocManaged(&j, sizeof(JOB)));	//j = (JOB *)malloc(sizeof(JOB));
-	checkCudaErrors(cudaMallocManaged(&(j->data), size));
-	j->data = data;
-	j->size = size;
-	for (int i = 0; i < 64; i++)
-	{
+	memcpy(j->data, input, INPUT_SIZE);
+	
+	for (int i = 0; i < 32; i++) {
 		j->digest[i] = 0xff;
 	}
-	strcpy(j->fname, fname);
+
 	return j;
 }
 
-
-BYTE * get_file_data(char * fname, unsigned long * size) {
-	FILE * f = 0;
-	BYTE * buffer = 0;
-	unsigned long fsize = 0;
-
-	f = fopen(fname, "rb");
-	if (!f){
-		fprintf(stderr, "get_file_data Unable to open '%s'\n", fname);
-		return 0;
+// initialize string to be used for hashing
+// input = prefix + '/' + '+' * (INPUT_SIZE - RANDOM_SIZE - strlen(input)) + random_string[RANDOM_SIZE]
+void string_init(char * prefix, char * input, unsigned int * seed) {
+	
+	for(int i = 0; i < strlen(prefix); i ++) {
+		input[i] = prefix[i];
 	}
-	fflush(f);
+	input[strlen(prefix)] = '/';
 
-	if (fseek(f, 0, SEEK_END)){
-		fprintf(stderr, "Unable to fseek %s\n", fname);
-		return 0;
+	for(int i = strlen(input); i < INPUT_SIZE - RANDOM_SIZE; i++) {
+		input[i] = '+';
 	}
-	fflush(f);
-	fsize = ftell(f);
-	rewind(f);
 
-	//buffer = (char *)malloc((fsize+1)*sizeof(char));
-	checkCudaErrors(cudaMallocManaged(&buffer, (fsize+1)*sizeof(char)));
-	fread(buffer, fsize, 1, f);
-	fclose(f);
-	*size = fsize;
-	return buffer;
-}
+	for(int i = strlen(input); i < INPUT_SIZE; i++) {
+		input[i] = base64[rand_r(seed) % strlen(base64)];
+	}
 
-void print_usage(){
-	printf("Usage: CudaSHA256 [OPTION] [FILE]...\n");
-	printf("Calculate sha256 hash of given FILEs\n\n");
-	printf("OPTIONS:\n");
-	printf("\t-f FILE1 \tRead a list of files (separeted by \\n) from FILE1, output hash for each file\n");
-	printf("\t-h       \tPrint this help\n");
-	printf("\nIf no OPTIONS are supplied, then program reads the content of FILEs and outputs hash for each FILEs \n");
-	printf("\nOutput format:\n");
-	printf("Hash following by two spaces following by file name (same as sha256sum).\n");
-	printf("\nNotes:\n");
-	printf("Calculations are performed on GPU, each seperate file is hashed in its own thread\n");
 }
 
 int main(int argc, char **argv) {
-	int i = 0, n = 0;
-	size_t len;
-	unsigned long temp;
-	char * a_file = 0, * line = 0;
-	BYTE * buff;
-	char option, index;
-	ssize_t read;
+	int n; // number of jobs
 	JOB ** jobs;
+	char * prefix, input[INPUT_SIZE] = {};
+	unsigned int seed = time(0);
 
-	// parse input
-	while ((option = getopt(argc, argv,"hf:")) != -1)
-		switch (option) {
-			case 'h' :
-				print_usage();
-				break;
-			case 'f' :
-				a_file = optarg;
-				break;
-			default:
-				break;
-		}
-
-
-	if (a_file) {
-		FILE * f = 0;
-		f = fopen(a_file, "r");
-		if (!f){
-			fprintf(stderr, "Unable to open %s\n", a_file);
-			return 0;
-		}
-
-		for (n = 0; getline(&line, &len, f) != -1; n++){}
-		checkCudaErrors(cudaMallocManaged(&jobs, n * sizeof(JOB *)));
-		fseek(f, 0, SEEK_SET);
-
-		n = 0;
-		read = getline(&line, &len, f);
-		while (read != -1) {
-			//printf("%s\n", line);
-			read = getline(&line, &len, f);
-			line = trim(line);
-			buff = get_file_data(line, &temp);
-			jobs[n++] = JOB_init(buff, temp, line);
-		}
-
-		pre_sha256();
-		runJobs(jobs, n);
-
-	} else {
-		// get number of arguments = files = jobs
-		n = argc - optind;
-		if (n > 0){
-
-			checkCudaErrors(cudaMallocManaged(&jobs, n * sizeof(JOB *)));
-
-			// iterate over file list - non optional arguments
-			for (i = 0, index = optind; index < argc; index++, i++){
-				buff = get_file_data(argv[index], &temp);
-				jobs[i] = JOB_init(buff, temp, argv[index]);
-			}
-
-			pre_sha256();
-			runJobs(jobs, n);
-		}
+	if(argc != 3) {
+		fprintf(stderr, "usage: cudasha256 name jobs\n");
+		return 1;
 	}
+
+	prefix = argv[1]; // prefix == name
+	n = atoi(argv[2]);
+	checkCudaErrors(cudaMallocManaged(&jobs, n * sizeof(JOB *)));
+
+	for(int i = 0; i < n; i++) {
+		string_init(prefix, input, &seed);
+		jobs[i] = JOB_init(input);
+		memset(input, 0, INPUT_SIZE);
+	}
+
+	pre_sha256();
+	runJobs(jobs, n);
 
 	cudaDeviceSynchronize();
 	print_jobs(jobs, n);
