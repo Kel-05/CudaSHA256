@@ -23,11 +23,6 @@ __global__ void sha256_cuda(JOB ** jobs, int n) {
 	}
 }
 
-void pre_sha256() {
-	// compy symbols
-	checkCudaErrors(cudaMemcpyToSymbol(dev_k, host_k, sizeof(host_k), 0, cudaMemcpyHostToDevice));
-}
-
 
 void runJobs(JOB ** jobs, int n){
 	int blockSize = 4;
@@ -88,7 +83,6 @@ int main(int argc, char **argv) {
 		memset(input, 0, INPUT_SIZE);
 	}
 
-	pre_sha256();
 	runJobs(jobs, n);
 
 	cudaDeviceSynchronize();
