@@ -16,42 +16,44 @@ __device__ __constant__ char cuda_base64[65] = "+/0123456789ABCDEFGHIJKLMNOPQRST
 // perform sha256 calculation here
 __global__ void sha256_cuda(JOB ** jobs, int n, int len_prefix) {
   int thread_id = blockIdx.x * blockDim.x + threadIdx.x;
-  uint8_t data[64];
-  memcpy(data, jobs[thread_id]->data, 64);
   
   if(thread_id > n) {
     return;
   }
-  SHA256_CTX ctx;
   
-  for(; ; jobs[thread_id]->counter++) {
-    for (int i = len_prefix; i < INPUT_SIZE - RANDOM_SIZE; i++) {
+  SHA256_CTX ctx;  
+  uint8_t data[64], digest[32], i, j;
+  uint64_t counter = 0;
+  memcpy(data, jobs[thread_id]->data, 64);
+  memcpy(digest, jobs[thread_id]->digest, 32);
+  
+  for(; ; counter++) {
+    for (i = len_prefix; ; i++) {
       
       if (data[i] != 'z') {
-	int j = jobs[thread_id]->counter >> (6 * (i - len_prefix));
+	j = counter >> (6 * (i - len_prefix));
 	data[i] = cuda_base64[j % 64];
 	break;
       }
-      else {
-	data[i] = '+';
-      }
+      data[i] = '+';
     }
     
     sha256_init(&ctx, data);
-    sha256_final(&ctx, jobs[thread_id]->digest);
+    sha256_final(&ctx, digest);
     
-    if(jobs[thread_id]->digest[0] > 0) continue;
-    if(jobs[thread_id]->digest[1] > 0) continue;
-    if(jobs[thread_id]->digest[2] > 0) continue;
+    if(digest[0] != 0) continue;
+    if(digest[1] != 0) continue;
+    jobs[thread_id]->counter = counter; 
+    if(digest[2] != 0) continue;
     
-    for(int i = 2; i < 32; i++) {
+    for(i = 3; ; i++) {
       
-      if(jobs[thread_id]->digest[i] < jobs[thread_id]->best_digest[i]) {
-	memcpy(jobs[thread_id]->best_digest, jobs[thread_id]->digest, 32);
+      if(digest[i] < jobs[thread_id]->best_digest[i]) {
+	memcpy(jobs[thread_id]->best_digest, digest, 32);
 	memcpy(jobs[thread_id]->best_data, data, 55);
 	break;
       }
-      else if(jobs[thread_id]->digest[i] > jobs[thread_id]->best_digest[i]) {
+      else if(digest[i] > jobs[thread_id]->best_digest[i]) {
 	break;
       }
     }

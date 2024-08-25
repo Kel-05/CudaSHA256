@@ -73,10 +73,6 @@ char * hash_to_string(BYTE * buff) {
   return string;
 }
 
-void print_job(JOB * j){
-  printf("%s -> %X\n", j->data, hash_to_string(j->digest));
-}
-
 uint64_t print_best_job(JOB ** jobs, int n) {
   uint64_t total_counter = 0;
   int bestjob = 0;
@@ -102,9 +98,7 @@ uint64_t print_best_job(JOB ** jobs, int n) {
 
 void print_status(JOB ** jobs, int n, uint64_t * previous_counter, int time) {
   uint64_t total_counter;
-  /*for(int i = 0; i < 4; i++) {
-    print_job(jobs[i]);
-    }*/
+  
   printf("\nBest hash: ");
   total_counter = print_best_job(jobs, n);
   printf("speed = %d MiH/s\n", ((total_counter - *previous_counter) / time) >> 20);
