@@ -28,6 +28,11 @@ __global__ void sha256_cuda(JOB ** jobs, int n, int len_prefix) {
   memcpy(digest, jobs[thread_id]->digest, 32);
   
   for(; ; counter++) {
+
+    if(counter % 8192 == 0) {
+      jobs[thread_id]->counter = counter;
+    }
+
     for (i = len_prefix; ; i++) {
       
       if (data[i] != 'z') {
@@ -38,15 +43,13 @@ __global__ void sha256_cuda(JOB ** jobs, int n, int len_prefix) {
       data[i] = '+';
     }
     
-    sha256_init(&ctx, data);
+    sha256_init(&ctx);
+    sha256_transform(&ctx, data);
+
+    if(ctx.state[0] != 0) continue;
     sha256_final(&ctx, digest);
     
-    if(digest[0] != 0) continue;
-    if(digest[1] != 0) continue;
-    jobs[thread_id]->counter = counter; 
-    if(digest[2] != 0) continue;
-    
-    for(i = 3; ; i++) {
+    for(i = 8; ; i++) {
       
       if(digest[i] < jobs[thread_id]->best_digest[i]) {
 	memcpy(jobs[thread_id]->best_digest, digest, 32);
@@ -61,12 +64,16 @@ __global__ void sha256_cuda(JOB ** jobs, int n, int len_prefix) {
 }
 
 void runJobs(JOB ** jobs, int n, int len_prefix){
-  int blockSize = 4;
+  int blockSize;
+  int minGridSize;
+  int gridSize;
   uint64_t counter = 0;
-  int numBlocks = (n + blockSize - 1) / blockSize;
+
+  cudaOccupancyMaxPotentialBlockSize(&minGridSize, &blockSize, sha256_cuda, 0, 0);
+  gridSize = (n + blockSize - 1) / blockSize; 
   
-  sha256_cuda <<< numBlocks, blockSize >>> (jobs, n, len_prefix);
-  
+  sha256_cuda <<< gridSize, blockSize >>> (jobs, n, len_prefix);
+
   for(; ; ) {
     sleep(5);
     printf("\e[1;1H\e[2J");
@@ -80,6 +87,17 @@ JOB * JOB_init(char * input) {
   JOB * j;
   checkCudaErrors(cudaMallocManaged(&j, sizeof(JOB)));	//j = (JOB *)malloc(sizeof(JOB));
   memcpy(j->data, input, INPUT_SIZE);
+
+  // finalize input string
+  j->data[55] = 128;
+  j->data[56] = 0;
+  j->data[57] = 0;
+  j->data[58] = 0;
+  j->data[59] = 0;
+  j->data[60] = 0;
+  j->data[61] = 0;
+  j->data[62] = 1;
+  j->data[63] = 184;
   
   memset(j->digest, 0xff, 32);
   memset(j->best_digest, 0xff, 32);
@@ -107,18 +125,17 @@ void string_init(char * prefix, char * input, unsigned int * seed) {
 }
 
 int main(int argc, char **argv) {
-  int n; // number of jobs
+  int n = 65536; // number of jobs
   JOB ** jobs;
   char * prefix, input[INPUT_SIZE] = {};
   unsigned int seed = time(0);
   
-  if(argc != 3) {
-    fprintf(stderr, "usage: cudasha256 name jobs\n");
+  if(argc != 2) {
+    fprintf(stderr, "usage: cudasha256 name\n");
     return 1;
   }
   
   prefix = argv[1]; // prefix == name
-  n = atoi(argv[2]);
   checkCudaErrors(cudaMallocManaged(&jobs, n * sizeof(JOB *)));
   
   for(int i = 0; i < n; i++) {

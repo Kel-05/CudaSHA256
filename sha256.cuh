@@ -37,9 +37,6 @@ typedef struct JOB {
 
 
 typedef struct {
-  BYTE *data;
-  WORD datalen = 55;
-  unsigned long long bitlen;
   WORD state[8];
 } SHA256_CTX;
 
@@ -55,16 +52,14 @@ __device__ __constant__ WORD dev_k[64] = {
 };
 
 /*********************** FUNCTION DECLARATIONS **********************/
-char * print_sha(BYTE * buff);
 __device__ void sha256_init(SHA256_CTX *ctx);
-__device__ void sha256_update(SHA256_CTX *ctx, const BYTE data[], size_t len);
 __device__ void sha256_final(SHA256_CTX *ctx, BYTE hash[]);
 
 
 char * hash_to_string(BYTE * buff) {
   char * string = (char *)malloc(70);
   int k, i;
-  for (i = 0, k = 0; i < 32; i++, k+= 2)
+  for (i = 0, k = 0; i < 12; i++, k+= 2)
     {
       sprintf(string + k, "%.2x", buff[i]);
       //printf("%02x", buff[i]);
@@ -91,7 +86,7 @@ uint64_t print_best_job(JOB ** jobs, int n) {
       
     }
   }
-  printf("%s -> %s\n", jobs[bestjob]->best_data, hash_to_string(jobs[bestjob]->best_digest));
+  printf("%s -> %s...\n", jobs[bestjob]->best_data, hash_to_string(jobs[bestjob]->best_digest));
   printf("counter = %lu\n\n", total_counter);
   return total_counter;
 }
@@ -180,9 +175,8 @@ __device__ void sha256_transform(SHA256_CTX *ctx, const BYTE data[])
   ctx->state[7] += h;
 }
 
-__device__ void sha256_init(SHA256_CTX *ctx, BYTE data[])
+__device__ void sha256_init(SHA256_CTX *ctx)
 {
-  ctx->bitlen = 0;
   ctx->state[0] = 0x6a09e667;
   ctx->state[1] = 0xbb67ae85;
   ctx->state[2] = 0x3c6ef372;
@@ -191,52 +185,18 @@ __device__ void sha256_init(SHA256_CTX *ctx, BYTE data[])
   ctx->state[5] = 0x9b05688c;
   ctx->state[6] = 0x1f83d9ab;
   ctx->state[7] = 0x5be0cd19;
-  ctx->data = data;
 }
 
 __device__ void sha256_final(SHA256_CTX *ctx, BYTE hash[])
 {
   WORD i;
-  
-  i = ctx->datalen;
 
-  // Pad whatever data is left in the buffer.
-  if (ctx->datalen < 56) {
-    ctx->data[i++] = 0x80;
-    while (i < 56)
-      ctx->data[i++] = 0x00;
-  }
-  else {
-    ctx->data[i++] = 0x80;
-    while (i < 64)
-			ctx->data[i++] = 0x00;
-    sha256_transform(ctx, ctx->data);
-    memset(ctx->data, 0, 56);
-  }
-  
-  // Append to the padding the total message's length in bits and transform.
-  ctx->bitlen += ctx->datalen * 8;
-  ctx->data[63] = ctx->bitlen;
-  ctx->data[62] = ctx->bitlen >> 8;
-  ctx->data[61] = ctx->bitlen >> 16;
-  ctx->data[60] = ctx->bitlen >> 24;
-  ctx->data[59] = ctx->bitlen >> 32;
-  ctx->data[58] = ctx->bitlen >> 40;
-  ctx->data[57] = ctx->bitlen >> 48;
-  ctx->data[56] = ctx->bitlen >> 56;
-  sha256_transform(ctx, ctx->data);
-  
   // Since this implementation uses little endian byte ordering and SHA uses big endian,
   // reverse all the bytes when copying the final state to the output hash.
   for (i = 0; i < 4; ++i) {
     hash[i] = (ctx->state[0] >> (24 - i * 8)) & 0x000000ff;
     hash[i + 4] = (ctx->state[1] >> (24 - i * 8)) & 0x000000ff;
     hash[i + 8] = (ctx->state[2] >> (24 - i * 8)) & 0x000000ff;
-    hash[i + 12] = (ctx->state[3] >> (24 - i * 8)) & 0x000000ff;
-    hash[i + 16] = (ctx->state[4] >> (24 - i * 8)) & 0x000000ff;
-    hash[i + 20] = (ctx->state[5] >> (24 - i * 8)) & 0x000000ff;
-    hash[i + 24] = (ctx->state[6] >> (24 - i * 8)) & 0x000000ff;
-    hash[i + 28] = (ctx->state[7] >> (24 - i * 8)) & 0x000000ff;
   }
 }
 
